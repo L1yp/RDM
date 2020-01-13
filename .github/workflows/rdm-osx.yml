@@ -1,0 +1,107 @@
+name: CI
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v1
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v2.2.1
+        with:
+          modules: qtcharts
+          version: 5.9
+
+      - name: Fix modules(aqtinstall)
+        run: |
+          cd ${RUNNER_WORKSPACE}/Qt
+          curl -o qtcharts.7z -L  https://download.qt.io/online/qtsdkrepository/mac_x64/desktop/qt5_59/qt.59.qtcharts.clang_64/5.9.0-0-201705291821qtcharts-MacOS-OSX_10_10-Clang-MacOS-OSX_10_10-X86_64.7z
+          7za x qtcharts.7z
+
+      - name: Check Qt
+        run: |
+          qmake -v
+          which qmake
+
+      - name: Begin Time
+        id: set_env
+        run: echo ::set-output name=TIME_BEGIN::$(date "+%Y.%m.%d.%H.%M.%S")
+
+      - name: Install deps
+        run: |
+          brew install ffsend 
+          brew install tree
+          brew install openssl cmake
+          brew reinstall python
+
+      - name: Clone rdm
+        run: |
+          cd ${RUNNER_WORKSPACE}
+          git clone -b 2019 --recursive https://github.com/uglide/RedisDesktopManager RedisDesktopManager
+          cd RedisDesktopManager
+
+      - name: Select Xcode
+        run: |
+          ls -n /Applications/ | grep Xcode*
+
+      - name: Add Python.framework
+        run: |
+          sudo mkdir -p /usr/local/opt/python/lib/Python.framework/Versions/
+          sudo ln -s /usr/local/opt/python/Frameworks/Python.framework/Versions/3.7 /usr/local/opt/python/lib/Python.framework/Versions/3.7
+
+      - name: Build rdm
+        env:
+          DEVELOPER_DIR: /Applications/Xcode_11.app/Contents/Developer
+        run: |
+          cd ${RUNNER_WORKSPACE}/RedisDesktopManager         
+          cd ./src && cp ./resources/Info.plist.sample ./resources/Info.plist
+          pip3 install -t ../bin/osx/release -r py/requirements.txt
+          qmake "CONFIG-=debug" "QT+=widgets" "QMAKE_LFLAGS=-Wl,-rpath,@executable_path/../Frameworks" #"CONFIG+=app_bundle" "TARGET=RedisDesktopManager"
+          make -s -j 4
+
+      - name: Pack
+        run: |
+          cd ${RUNNER_WORKSPACE}/RedisDesktopManager        
+          cd ./bin/osx/release
+          mv *.app RedisDesktopManager.app
+          otool -L RedisDesktopManager.app/Contents/MacOS/*
+          macdeployqt RedisDesktopManager.app -qmldir=../../../src/qml -verbose=2
+          otool -L RedisDesktopManager.app/Contents/MacOS/*
+          mkdir pack
+          mv RedisDesktopManager.app pack/
+          ln -s /Applications/  pack/Applications
+          hdiutil create tmp.dmg -ov -volname "RedisDesktopManager" -fs HFS+ -srcfolder pack
+          hdiutil convert tmp.dmg -format UDZO -o RedisDesktopManager.dmg
+
+      # - name: Upload
+      #   run: |
+      #     cd ${RUNNER_WORKSPACE}/RedisDesktopManager
+      #     cd ./bin/osx/release
+      #     ffsend u RedisDesktopManager.dmg
+      #     ffsend u RedisDesktopManager.dmg
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions, you do not need to create your own token
+        with:
+          tag_name: ${{ steps.set_env.outputs.TIME_BEGIN }}.${{ github.sha }}
+          release_name: Release ${{ steps.set_env.outputs.TIME_BEGIN }}.${{ github.sha }}
+          draft: false
+          prerelease: false
+
+      - name: Upload Release Asset
+        id: upload-release-asset
+        uses: actions/upload-release-asset@v1.0.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
+          asset_path: ../RedisDesktopManager/bin/osx/release/RedisDesktopManager.dmg
+          asset_name: RedisDesktopManager.dmg
+          asset_content_type: application/octet-stream
