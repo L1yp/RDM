@@ -33,8 +33,8 @@ jobs:
 
       - name: Install deps
         run: |
-          brew install ffsend 
-          brew install tree
+          # brew install ffsend 
+          # brew install tree
           brew install openssl cmake
           brew reinstall python
 
@@ -86,12 +86,15 @@ jobs:
 
       - name: Create Release
         id: create_release
-        uses: actions/create-release@v1
+        uses: actions/create-release@master
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions, you do not need to create your own token
         with:
           tag_name: ${{ steps.set_env.outputs.TIME_BEGIN }}.${{ github.sha }}
           release_name: Release ${{ steps.set_env.outputs.TIME_BEGIN }}.${{ github.sha }}
+          body: |
+            ## macOS
+            `brew upgrade python` to upgrade python from `3.6` to `3.7` if crash
           draft: false
           prerelease: false
 
